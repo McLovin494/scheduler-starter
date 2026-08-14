@@ -12,8 +12,8 @@ export interface IPost extends Document{
     content:string,
     media:string[],
     status:string,
-    scheduledAt?:Date,
-    publishedAt?:Date
+    scheduledAt?:Date|null,
+    publishedAt?:Date|null
 }
 const postSchema=new Schema<IPost>({
     workspaceId:{
@@ -39,10 +39,12 @@ const postSchema=new Schema<IPost>({
         default:PostStatus.DRAFT
     },
     scheduledAt:{
-        type:Date
+        type:Date,
+        default:null
     },
     publishedAt:{
-        type:Date
+        type:Date,
+        default:null
     }
 },{timestamps:true})
 postSchema.index({

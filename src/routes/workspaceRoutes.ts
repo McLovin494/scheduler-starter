@@ -8,6 +8,7 @@ import { SocialAccount, SocialPlatform } from "../models/SocialAccount.js";
 import { Console } from "console";
 import { Post, PostStatus } from "../models/Post.js";
 import { PostSocialAccount } from "../models/PostSocialAccount.js";
+import { postQueue } from "../queues/postQueue.js";
 
 const router = Router()
 router.post("/", protect, async (req: AuthedRequest, res: Response) => {
@@ -491,9 +492,6 @@ router.post(
         }
     }
 )
-
-
-
 router.get(
     "/:workspaceId/posts",
     protect,
@@ -843,44 +841,44 @@ router.delete(
         UserRole.ADMIN,
         UserRole.EDITOR
     ),
-    async(req:WorkspaceRequest,res:Response)=>{
+    async (req: WorkspaceRequest, res: Response) => {
         try {
-            const{
+            const {
                 workspaceId,
                 postId,
                 socialAccountId
-            }=req.params
-            const post=await Post.findOne({
-                _id:postId,
+            } = req.params
+            const post = await Post.findOne({
+                _id: postId,
                 workspaceId
             })
-            if(!post){
+            if (!post) {
                 return res.status(404).json({
-                    success:false,
-                    message:"Post not found",
-                    data:{}
+                    success: false,
+                    message: "Post not found",
+                    data: {}
                 })
             }
-            const socialAccount=await SocialAccount.findOne({
-                _id:socialAccountId,
+            const socialAccount = await SocialAccount.findOne({
+                _id: socialAccountId,
                 workspaceId
             })
-            if(!socialAccount){
+            if (!socialAccount) {
                 return res.status(404).json({
-                    success:false,
-                    message:"Social account not found"
+                    success: false,
+                    message: "Social account not found"
                 })
             }
-            const result=await PostSocialAccount.deleteOne({
+            const result = await PostSocialAccount.deleteOne({
                 postId,
                 socialAccountId
             })
 
-            if(result.deletedCount===0){
+            if (result.deletedCount === 0) {
                 return res.status(404).json({
-                    success:false,
-                    message:"Social account is not attached to this post",
-                    data:{}
+                    success: false,
+                    message: "Social account is not attached to this post",
+                    data: {}
                 })
             }
             return res.status(200).json({
@@ -889,7 +887,7 @@ router.delete(
                 data: {}
             });
         } catch (error) {
-             console.error(error);
+            console.error(error);
 
             return res.status(500).json({
                 success: false,
@@ -899,4 +897,122 @@ router.delete(
         }
     }
 )
+
+router.post(
+    "/:workspaceId/posts/:postId/schedule",
+    protect,
+    requireWorkspaceMember,
+    requireRoles(
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.EDITOR
+    ),
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            const { workspaceId, postId } = req.params
+            const { scheduledAt } = req.body
+            if (!scheduledAt) {
+                return res.status(400)
+                    .json({
+                        success: false,
+                        message: "ScheduledAt is required",
+                        data: {}
+                    })
+            }
+            const scheduleDate = new Date(scheduledAt)
+            if (isNaN(scheduleDate.getTime())) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid scheduledAt",
+                    data: {}
+                })
+            }
+            if (scheduledAt < new Date()) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Scheduled time must be in future",
+                    data: {}
+                })
+            }
+            const post = await Post.findOne({
+                _id: postId,
+                workspaceId
+            })
+            if (!post) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Post not found",
+                    data: {}
+                })
+            }
+            if (post.status !== PostStatus.DRAFT) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Only draft posts can be scheduled",
+                    data: {}
+                })
+            }
+            const socialAccounts = await PostSocialAccount.find({
+                postId
+            })
+            if (socialAccounts.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Attach at least one social account before scheduling"
+                })
+            }
+            post.status = PostStatus.SCHEDULED
+            post.scheduledAt = scheduleDate
+            await post.save()
+console.log("added to the queue")
+            await postQueue.add(
+                "publish-post",
+                {
+                    postId:post._id.toString(),
+                    workspaceId
+            },
+            {
+                delay:scheduleDate.getTime()-Date.now(),
+                attempts:3,
+                backoff:{
+                    type:"exponential",
+                    delay:5000
+                },
+                removeOnComplete:true,
+                removeOnFail:false
+            }
+            )
+console.log("queue addition successfull")
+            return res.status(200).json({
+                success: false,
+                message: "Post scheduled successfully",
+                data: {
+                    post
+                }
+            })
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to schedule post",
+                data: {}
+            });
+        }
+    }
+)
+router.post("/change",async(req,res)=>{
+    const post=await Post.findOne({
+        _id:"6a7f40bce060c4d709f77e3f",
+        workspaceId:"6a7f3f016ae66b30195de196"
+    })
+    if(!post){
+        return res.status(404).json({
+            message:"not found"
+        })
+    }
+    post.status=PostStatus.DRAFT;
+    await post.save()
+    return res.status(200).json("done")
+})
 export default router;
