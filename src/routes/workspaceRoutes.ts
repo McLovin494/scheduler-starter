@@ -6,6 +6,7 @@ import { requireRoles, requireWorkspaceMember, WorkspaceRequest } from "../middl
 import { User } from "../models/User.js";
 import { SocialAccount, SocialPlatform } from "../models/SocialAccount.js";
 import { Console } from "console";
+import { Post, PostStatus } from "../models/Post.js";
 
 const router = Router()
 router.post("/", protect, async (req: AuthedRequest, res: Response) => {
@@ -432,4 +433,281 @@ router.get(
         }
     }
 );
+
+
+router.post(
+    "/:workspaceId/posts",
+    protect,
+    requireWorkspaceMember,
+    requireRoles(UserRole.OWNER, UserRole.ADMIN, UserRole.EDITOR),
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            const { workspaceId } = req.params
+            const { content, media } = req.body
+            if (!content || !content.trim()) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Post content is required",
+                    data: {}
+                })
+            }
+            if (media !== undefined && !Array.isArray(media)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Media must be an array",
+                    data: {}
+                })
+            }
+            const post = await Post.create({
+                workspaceId,
+                createdBy: req.user?.id,
+                content: content.trim(),
+                media: media || [],
+                status: PostStatus.DRAFT
+            })
+            console.log("CREATE POST REQUEST");
+            console.log({
+                workspaceId,
+                userId: req.user?.id,
+                content,
+                media
+            });
+            return res.status(201).json({
+                success: true,
+                message: "Draft created successfully",
+                data: {
+                    post
+                }
+            })
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to create post",
+                data: {}
+            });
+        }
+    }
+)
+
+
+
+router.get(
+    "/:workspaceId/posts",
+    protect,
+    requireWorkspaceMember,
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            const { workspaceId } = req.params;
+            const { status } = req.query;
+
+            const filter: any = {
+                workspaceId
+            };
+
+            if (status) {
+                if (!Object.values(PostStatus).includes(status as PostStatus)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Invalid post status",
+                        data: {}
+                    });
+                }
+
+                filter.status = status;
+            }
+
+            const posts = await Post.find(filter)
+                .sort({ createdAt: -1 })
+                .lean();
+            console.log(posts)
+            return res.status(200).json({
+                success: true,
+                message: "Posts fetched successfully",
+                data: {
+                    posts
+                }
+            });
+
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to fetch posts",
+                data: {}
+            });
+        }
+    }
+);
+router.get(
+    "/:workspaceId/posts/:postId",
+    protect,
+    requireWorkspaceMember,
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            console.log("hit")
+            const { workspaceId, postId } = req.params
+            console.log(workspaceId, postId)
+            const post = await Post.findOne({
+                _id: postId,
+                workspaceId
+            }).lean()
+            console.log(post)
+            if (!post) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Post not found",
+                    data: {}
+                });
+            }
+            return res.status(200).json({
+                success: true,
+                message: "Post fetched successfully",
+                data: { post }
+            });
+
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to fetch post",
+                data: {}
+            });
+        }
+    }
+)
+
+router.patch(
+    "/:workspaceId/posts/:postId",
+    protect,
+    requireWorkspaceMember,
+    requireRoles(
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.EDITOR
+    ),
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            console.log("hit")
+            const { workspaceId, postId } = req.params;
+            const { content, media } = req.body;
+
+            const post = await Post.findOne({
+                _id: postId,
+                workspaceId
+            });
+
+            if (!post) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Post not found",
+                    data: {}
+                });
+            }
+
+            // Don't allow editing published posts for now
+            if (post.status === PostStatus.PUBLISHED) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Published posts cannot be edited",
+                    data: {}
+                });
+            }
+
+            if (content !== undefined) {
+                if (!content.trim()) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Content cannot be empty",
+                        data: {}
+                    });
+                }
+
+                post.content = content.trim();
+            }
+
+            if (media !== undefined) {
+                if (!Array.isArray(media)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Media must be an array",
+                        data: {}
+                    });
+                }
+
+                post.media = media;
+            }
+
+            await post.save();
+
+            return res.status(200).json({
+                success: true,
+                message: "Post updated successfully",
+                data: {
+                    post
+                }
+            });
+
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to update post",
+                data: {}
+            });
+        }
+    }
+);
+
+router.delete(
+    "/:workspaceId/posts/:postId",
+    protect,
+    requireWorkspaceMember,
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            const { workspaceId, postId } = req.params
+            const post = await Post.findOne({
+                _id: postId,
+                workspaceId
+            })
+            if (!post) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Post not found",
+                    data: {}
+                })
+            }
+            if (post.status === PostStatus.PUBLISHED) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Published posts cannot be deleted",
+                    data: {}
+                });
+            }
+
+            await Post.deleteOne({
+                _id: postId,
+                workspaceId
+            })
+            return res.status(200).json({
+                success: true,
+                message: "Post deleted successfully",
+                data: {}
+            });
+
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to delete post",
+                data: {}
+            });
+        }
+    }
+)
 export default router;

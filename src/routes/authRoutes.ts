@@ -5,6 +5,7 @@ import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
 import { RefreshToken } from "../models/RefreshToken.js";
 import crypto from "crypto"
+import { WorkSpaceMember } from "../models/WorkspaceMember.js";
 const router = Router();
 // Starter stub — wire up bcrypt hashing + JWT signing here
 router.post("/register", async (req, res, next) => {
@@ -37,7 +38,7 @@ router.post("/register", async (req, res, next) => {
 });
 router.get("/users",async(req,res)=>{
   console.log("hit")
-  const users= await User.find({})
+  const users= await WorkSpaceMember.find({})
   console.log(users)
   return res.status(200).json(users)
 })
