@@ -7,6 +7,7 @@ import { User } from "../models/User.js";
 import { SocialAccount, SocialPlatform } from "../models/SocialAccount.js";
 import { Console } from "console";
 import { Post, PostStatus } from "../models/Post.js";
+import { PostSocialAccount } from "../models/PostSocialAccount.js";
 
 const router = Router()
 router.post("/", protect, async (req: AuthedRequest, res: Response) => {
@@ -705,6 +706,194 @@ router.delete(
             return res.status(500).json({
                 success: false,
                 message: "Failed to delete post",
+                data: {}
+            });
+        }
+    }
+)
+router.post(
+    "/:workspaceId/posts/:postId/social-accounts",
+    protect,
+    requireWorkspaceMember,
+    requireRoles(UserRole.OWNER, UserRole.ADMIN, UserRole.EDITOR),
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            const { workspaceId, postId } = req.params
+            const { socialAccountIds } = req.body
+            if (
+                !Array.isArray(socialAccountIds) ||
+                socialAccountIds.length === 0
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Social accounts IDs must be non-empty array",
+                    data: {}
+                })
+            }
+            const post = await Post.findOne({
+                _id: postId,
+                workspaceId
+            })
+            if (!post) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Post not found",
+                    data: {}
+                })
+            }
+            const socialAccounts = await SocialAccount.find({
+                _id: { $in: socialAccountIds },
+                workspaceId
+            }).lean()
+
+            if (socialAccounts.length !== socialAccountIds.length) {
+                return res.status(400).json({
+                    success: false,
+                    message: "One or more social accounts are invalid",
+                    data: {}
+                })
+            }
+            const relationships = socialAccountIds.map(
+                (socialAccountId: string) => ({
+                    postId, socialAccountId
+                })
+            )
+            await PostSocialAccount.insertMany(
+                relationships,
+                { ordered: false }
+            )
+            return res.status(201).json({
+                success: true,
+                message: "Social accounts attached successfully",
+                data: {
+                    socialAccountIds
+                }
+            });
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to attach social accounts",
+                data: {}
+            });
+        }
+    }
+)
+router.get(
+    "/:workspaceId/posts/:postId/social-accounts",
+    protect,
+    requireWorkspaceMember,
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            const { workspaceId, postId } = req.params;
+
+            // Make sure post belongs to workspace
+            const post = await Post.findOne({
+                _id: postId,
+                workspaceId
+            });
+
+            if (!post) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Post not found",
+                    data: {}
+                });
+            }
+
+            const relationships = await PostSocialAccount.find({
+                postId
+            }).lean();
+
+            const socialAccountIds = relationships.map(
+                relationship => relationship.socialAccountId
+            );
+
+            const socialAccounts = await SocialAccount.find({
+                _id: { $in: socialAccountIds },
+                workspaceId
+            }).lean();
+
+            return res.status(200).json({
+                success: true,
+                message: "Post social accounts fetched successfully",
+                data: {
+                    socialAccounts
+                }
+            });
+
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to fetch post social accounts",
+                data: {}
+            });
+        }
+    }
+);
+router.delete(
+    "/:workspaceId/posts/:postId/social-accounts/:socialAccountId",
+    protect,
+    requireWorkspaceMember,
+    requireRoles(
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.EDITOR
+    ),
+    async(req:WorkspaceRequest,res:Response)=>{
+        try {
+            const{
+                workspaceId,
+                postId,
+                socialAccountId
+            }=req.params
+            const post=await Post.findOne({
+                _id:postId,
+                workspaceId
+            })
+            if(!post){
+                return res.status(404).json({
+                    success:false,
+                    message:"Post not found",
+                    data:{}
+                })
+            }
+            const socialAccount=await SocialAccount.findOne({
+                _id:socialAccountId,
+                workspaceId
+            })
+            if(!socialAccount){
+                return res.status(404).json({
+                    success:false,
+                    message:"Social account not found"
+                })
+            }
+            const result=await PostSocialAccount.deleteOne({
+                postId,
+                socialAccountId
+            })
+
+            if(result.deletedCount===0){
+                return res.status(404).json({
+                    success:false,
+                    message:"Social account is not attached to this post",
+                    data:{}
+                })
+            }
+            return res.status(200).json({
+                success: true,
+                message: "Social account removed from post",
+                data: {}
+            });
+        } catch (error) {
+             console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to remove social account",
                 data: {}
             });
         }
