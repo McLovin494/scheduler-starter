@@ -1,23 +1,44 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { JwtPayload } from "../types/JwtPayload.js";
 
 export interface AuthedRequest extends Request {
-  userId?: string;
+  user?: {
+    id:string
+  };
 }
 
-export function protect(req: AuthedRequest, res: Response, next: NextFunction): void {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
-    res.status(401).json({ message: "Not authorized" });
-    return;
-  }
-
-  try {
-    const token = header.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET as string) as { sub: string };
-    req.userId = decoded.sub;
-    next();
+export function protect(req: AuthedRequest, res: Response, next: NextFunction) {
+  const authHeader=req.headers.authorization
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+        data: {},
+      });
+    }
+    try {
+    const token=authHeader.split(" ")[1];
+    const payload=jwt.verify(
+      token,
+      process.env.JWT_ACCESS_SECRET!
+    ) as JwtPayload
+    if(payload.type!=="access"){
+      return res.status(401).json({
+        success:false,
+        message:"Invalid access token",
+        data:{}
+      })
+    }
+    req.user={
+      id:payload.id
+    }
+    next()
   } catch {
-    res.status(401).json({ message: "Invalid or expired token" });
-  }
+ return res.status(401).json({
+      success: false,
+      message: "Invalid or expired access token",
+      data: {},
+    });
+    }
 }
