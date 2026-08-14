@@ -4,6 +4,8 @@ import { WorkSpace } from "../models/Workspace.js";
 import { UserRole, WorkSpaceMember } from "../models/WorkspaceMember.js";
 import { requireRoles, requireWorkspaceMember, WorkspaceRequest } from "../middleware/workspaceMiddleware.js";
 import { User } from "../models/User.js";
+import { SocialAccount, SocialPlatform } from "../models/SocialAccount.js";
+import { Console } from "console";
 
 const router = Router()
 router.post("/", protect, async (req: AuthedRequest, res: Response) => {
@@ -217,98 +219,98 @@ router.get("/:workspaceId/members", protect, requireWorkspaceMember, async (req:
         });
     }
 })
-router.patch("/:workspaceId/members/:userId",protect,requireRoles(UserRole.OWNER),async(req:WorkspaceRequest,res:Response)=>{
+router.patch("/:workspaceId/members/:userId", protect, requireRoles(UserRole.OWNER), async (req: WorkspaceRequest, res: Response) => {
     try {
-        const{workspaceId,userId}=req.params
-        const{role}=req.body
-         if (!role || !Object.values(UserRole).includes(role)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Invalid role",
-                    data: {}
-                });
-            }
-             if (role === UserRole.OWNER) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Use ownership transfer to change ownership",
-                    data: {}
-                });
-            }
-            const member=await WorkSpaceMember.findOne({
-                workspaceId,
-                userId
-            })
-            if( !member){
-                return res.status(404).json({
-                    success:false,
-                    message:'Member not found',
-                    data:{}
-                })
-            }
-             if (member.userRole === UserRole.OWNER) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Owner role cannot be changed",
-                    data: {}
-                });
-            }
-            member.userRole=role;
-            member.save()
-             return res.status(200).json({
-                success: true,
-                message: "Member role updated successfully",
-                data: {
-                    membership: member
-                }
-            });
-    } catch (error) {
-         console.error(error);
-
-            return res.status(500).json({
+        const { workspaceId, userId } = req.params
+        const { role } = req.body
+        if (!role || !Object.values(UserRole).includes(role)) {
+            return res.status(400).json({
                 success: false,
-                message: "Failed to update member role",
+                message: "Invalid role",
                 data: {}
             });
+        }
+        if (role === UserRole.OWNER) {
+            return res.status(400).json({
+                success: false,
+                message: "Use ownership transfer to change ownership",
+                data: {}
+            });
+        }
+        const member = await WorkSpaceMember.findOne({
+            workspaceId,
+            userId
+        })
+        if (!member) {
+            return res.status(404).json({
+                success: false,
+                message: 'Member not found',
+                data: {}
+            })
+        }
+        if (member.userRole === UserRole.OWNER) {
+            return res.status(400).json({
+                success: false,
+                message: "Owner role cannot be changed",
+                data: {}
+            });
+        }
+        member.userRole = role;
+        member.save()
+        return res.status(200).json({
+            success: true,
+            message: "Member role updated successfully",
+            data: {
+                membership: member
+            }
+        });
+    } catch (error) {
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update member role",
+            data: {}
+        });
     }
 })
 router.delete(
     "/:workspaceId/members/:userId",
     protect,
     requireWorkspaceMember,
-    requireRoles(UserRole.ADMIN,UserRole.OWNER),
-    async(req:WorkspaceRequest,res:Response,next:NextFunction)=>{
+    requireRoles(UserRole.ADMIN, UserRole.OWNER),
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
-            
-            const{workspaceId,userId}=req.params
-            const member=await WorkSpaceMember.findOne({
+
+            const { workspaceId, userId } = req.params
+            const member = await WorkSpaceMember.findOne({
                 workspaceId,
                 userId
             })
-            if(!member){
+            if (!member) {
                 return res.status(404).json({
-                    success:false,
-                    message:"Member not found",
-                    data:{}
+                    success: false,
+                    message: "Member not found",
+                    data: {}
                 })
             }
-            if(member.userRole===UserRole.OWNER){
-                 return res.status(403).json({
+            if (member.userRole === UserRole.OWNER) {
+                return res.status(403).json({
                     success: false,
                     message: "Workspace owner cannot be removed",
                     data: {}
                 });
             }
             await WorkSpaceMember.deleteOne({
-                _id:member._id
+                _id: member._id
             })
-             return res.status(200).json({
+            return res.status(200).json({
                 success: true,
                 message: "Member removed successfully",
                 data: {}
             });
         } catch (error) {
-             console.error(error);
+            console.error(error);
 
             return res.status(500).json({
                 success: false,
@@ -318,4 +320,116 @@ router.delete(
         }
     }
 )
+router.post("/:workspaceId/social-accounts",
+    protect,
+    requireWorkspaceMember,
+    requireRoles(UserRole.ADMIN, UserRole.OWNER),
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
+        try {
+            const { workspaceId } = req.params
+            const {
+                platform,
+                accountId,
+                accountName,
+                accessToken,
+                refreshToken,
+                expiresAt
+            } = req.body
+            if (
+                !platform ||
+                !accountId ||
+                !accountName ||
+                !accessToken
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Required fields are missing",
+                    data: {}
+                });
+            }
+            if (!Object.values(SocialPlatform).includes(platform)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid social platform",
+                    data: {}
+                })
+            }
+            const existingAccount = await SocialAccount.findOne({
+                workspaceId,
+                platform,
+                accountId
+            })
+            if (existingAccount) {
+                return res.status(409).json({
+                    success: false,
+                    message: "Social account already connected",
+                    data: {}
+                });
+            }
+            const socialAccount = await SocialAccount.create({
+                workspaceId,
+                platform,
+                accountId,
+                accountName,
+                accessToken,
+                refreshToken,
+                expiresAt
+            })
+            return res.status(201).json({
+                success: true,
+                message: "Social account connected successfully",
+                data: {
+                    socialAccount
+                }
+            })
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to connect social account",
+                data: {}
+            });
+        }
+    }
+)
+router.get(
+    "/:workspaceId/social-accounts",
+    protect,
+    requireWorkspaceMember,
+    async (
+        req: WorkspaceRequest,
+        res: Response,
+        next: NextFunction
+    ) => {
+        try {
+            const { workspaceId } = req.params;
+
+            const socialAccounts = await SocialAccount.find({
+                workspaceId
+            })
+                .select(
+                    "_id platform accountId accountName expiresAt createdAt updatedAt"
+                )
+                .lean();
+
+            return res.status(200).json({
+                success: true,
+                message: "Social accounts fetched successfully",
+                data: {
+                    socialAccounts
+                }
+            });
+
+        } catch (error) {
+            console.log(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                data: {}
+            });
+        }
+    }
+);
 export default router;
