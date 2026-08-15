@@ -12,6 +12,7 @@ import { postQueue } from "../queues/postQueue.js";
 import { PostPublishResult, PublishStatus } from "../models/PostPublishResult.js";
 
 const router = Router()
+//creating workspace
 router.post("/", protect, async (req: AuthedRequest, res: Response) => {
     try {
         const { name } = req.body
@@ -52,6 +53,7 @@ router.post("/", protect, async (req: AuthedRequest, res: Response) => {
         });
     }
 })
+//fetching the workspace
 router.get("/", protect, async (req: AuthedRequest, res: Response) => {
     try {
 
@@ -84,6 +86,7 @@ router.get("/", protect, async (req: AuthedRequest, res: Response) => {
         })
     }
 })
+//fetching workspace by id
 router.get("/:workspaceId", protect, requireWorkspaceMember, async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
     try {
         const { workspaceId } = req.params
@@ -113,11 +116,12 @@ router.get("/:workspaceId", protect, requireWorkspaceMember, async (req: Workspa
         });
     }
 })
+//hard delete everything
 router.delete("/all", async (req, res) => {
     const all = await WorkSpaceMember.deleteMany({})
     return res.status(200).json(all)
 })
-
+//adding members of a particular workspace
 router.post("/:workspaceId/members", protect, requireWorkspaceMember, requireRoles(UserRole.ADMIN, UserRole.OWNER), async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
     try {
         const { workspaceId } = req.params
@@ -184,6 +188,8 @@ router.post("/:workspaceId/members", protect, requireWorkspaceMember, requireRol
         });
     }
 })
+//find members of a particular workspace
+
 router.get("/:workspaceId/members", protect, requireWorkspaceMember, async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
     try {
         const { workspaceId } = req.params
@@ -223,6 +229,7 @@ router.get("/:workspaceId/members", protect, requireWorkspaceMember, async (req:
         });
     }
 })
+//changing role of a member in workspace
 router.patch("/:workspaceId/members/:userId", protect, requireRoles(UserRole.OWNER), async (req: WorkspaceRequest, res: Response) => {
     try {
         const { workspaceId, userId } = req.params
@@ -278,6 +285,7 @@ router.patch("/:workspaceId/members/:userId", protect, requireRoles(UserRole.OWN
         });
     }
 })
+//removing a member from a workspace
 router.delete(
     "/:workspaceId/members/:userId",
     protect,
@@ -324,6 +332,8 @@ router.delete(
         }
     }
 )
+
+//add social account to a workspace
 router.post("/:workspaceId/social-accounts",
     protect,
     requireWorkspaceMember,
@@ -397,6 +407,7 @@ router.post("/:workspaceId/social-accounts",
         }
     }
 )
+//get all social accounts attached to a workspace
 router.get(
     "/:workspaceId/social-accounts",
     protect,
@@ -437,7 +448,7 @@ router.get(
     }
 );
 
-
+//add posts to workspace
 router.post(
     "/:workspaceId/posts",
     protect,
@@ -493,6 +504,7 @@ router.post(
         }
     }
 )
+//view posts of workspace
 router.get(
     "/:workspaceId/posts",
     protect,
@@ -541,6 +553,7 @@ router.get(
         }
     }
 );
+//view particular post of a workspace
 router.get(
     "/:workspaceId/posts/:postId",
     protect,
@@ -579,7 +592,7 @@ router.get(
         }
     }
 )
-
+//updating the post of workspace
 router.patch(
     "/:workspaceId/posts/:postId",
     protect,
@@ -662,7 +675,7 @@ router.patch(
         }
     }
 );
-
+//deleting a particular post of workspace
 router.delete(
     "/:workspaceId/posts/:postId",
     protect,
@@ -915,7 +928,7 @@ router.delete(
         }
     }
 )
-
+//for scheduling a post
 router.post(
     "/:workspaceId/posts/:postId/schedule",
     protect,
@@ -1038,7 +1051,7 @@ router.post(
         }
     }
 )
-
+//rescheduling a post
 router.patch(
     "/:workspaceId/posts/:postId/reschedule",
     protect,
@@ -1154,6 +1167,7 @@ router.patch(
         }
     }
 );
+//cancelling a post
 router.post(
     "/:workspaceId/posts/:postId/cancel",
     protect,
@@ -1216,6 +1230,7 @@ router.post(
         }
     }
 )
+//changing the status
 router.post("/change", async (req, res) => {
     const post = await Post.findOne({
         _id: "6a7f40bce060c4d709f77e3f",
