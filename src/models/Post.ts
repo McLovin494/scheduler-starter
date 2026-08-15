@@ -1,52 +1,59 @@
 import { model, Schema } from "mongoose"
 
-export enum PostStatus{
-    DRAFT="DRAFT",
-    SCHEDULED="SCHEDULED",
-    PUBLISHED="PUBLISHED",
-    CANCELLED="CANCELLED"
+export enum PostStatus {
+    DRAFT = "DRAFT",
+    SCHEDULED = "SCHEDULED",
+    PUBLISHED = "PUBLISHED",
+    CANCELLED = "CANCELLED",
+    FAILED = "FAILED"
 }
-export interface IPost extends Document{
-    workspaceId:string,
-    createdBy:string,
-    content:string,
-    media:string[],
-    status:string,
-    scheduledAt?:Date|null,
-    publishedAt?:Date|null
+export interface IPost extends Document {
+    workspaceId: string,
+    createdBy: string,
+    content: string,
+    jobId?: string|null,
+    media: string[],
+    status: string,
+    scheduledAt?: Date | null,
+    publishedAt?: Date | null
+
 }
-const postSchema=new Schema<IPost>({
-    workspaceId:{
-        type:String,
-        required:true
+const postSchema = new Schema<IPost>({
+    workspaceId: {
+        type: String,
+        required: true
     },
-    createdBy:{
-        type:String,
-        required:true
+    createdBy: {
+        type: String,
+        required: true
     },
-    content:{
-        type:String,
-        required:true,
-        trim:true
+    jobId: {
+        type: String,
+        default: null
     },
-    media:{
-        type:[String],
-        default:[]
+    content: {
+        type: String,
+        required: true,
+        trim: true
     },
-    status:{
-        type:String,
-        enum:Object.values(PostStatus),
-        default:PostStatus.DRAFT
+    media: {
+        type: [String],
+        default: []
     },
-    scheduledAt:{
-        type:Date,
-        default:null
+    status: {
+        type: String,
+        enum: Object.values(PostStatus),
+        default: PostStatus.DRAFT
     },
-    publishedAt:{
-        type:Date,
-        default:null
+    scheduledAt: {
+        type: Date,
+        default: null
+    },
+    publishedAt: {
+        type: Date,
+        default: null
     }
-},{timestamps:true})
+}, { timestamps: true })
 postSchema.index({
     workspaceId: 1,
     status: 1,

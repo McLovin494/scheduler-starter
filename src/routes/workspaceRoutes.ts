@@ -9,6 +9,7 @@ import { Console } from "console";
 import { Post, PostStatus } from "../models/Post.js";
 import { PostSocialAccount } from "../models/PostSocialAccount.js";
 import { postQueue } from "../queues/postQueue.js";
+import { PostPublishResult, PublishStatus } from "../models/PostPublishResult.js";
 
 const router = Router()
 router.post("/", protect, async (req: AuthedRequest, res: Response) => {
@@ -961,28 +962,46 @@ router.post(
                     message: "Attach at least one social account before scheduling"
                 })
             }
+
+            await PostPublishResult.deleteMany({
+                postId
+            });
+
+            await PostPublishResult.insertMany(
+                socialAccounts.map(account => ({
+                    postId,
+                    socialAccountId: account.socialAccountId,
+                    status: PublishStatus.PENDING
+                }))
+            );
+
+
             post.status = PostStatus.SCHEDULED
             post.scheduledAt = scheduleDate
-            await post.save()
-console.log("added to the queue")
-            await postQueue.add(
+
+            console.log("added to the queue")
+            const job = await postQueue.add(
                 "publish-post",
                 {
-                    postId:post._id.toString(),
+                    postId: post._id.toString(),
                     workspaceId
-            },
-            {
-                delay:scheduleDate.getTime()-Date.now(),
-                attempts:3,
-                backoff:{
-                    type:"exponential",
-                    delay:5000
                 },
-                removeOnComplete:true,
-                removeOnFail:false
-            }
+                {
+                    delay: scheduleDate.getTime() - Date.now(),
+                    attempts: 3,
+                    backoff: {
+                        type: "exponential",
+                        delay: 5000
+                    },
+                    removeOnComplete: true,
+                    removeOnFail: false
+                }
             )
-console.log("queue addition successfull")
+            
+            post.jobId = job.id
+            await post.save()
+            console.log("schedule====>",post)
+            console.log("queue addition successfull")
             return res.status(200).json({
                 success: false,
                 message: "Post scheduled successfully",
@@ -1001,17 +1020,195 @@ console.log("queue addition successfull")
         }
     }
 )
-router.post("/change",async(req,res)=>{
-    const post=await Post.findOne({
-        _id:"6a7f40bce060c4d709f77e3f",
-        workspaceId:"6a7f3f016ae66b30195de196"
+
+router.patch(
+    "/:workspaceId/posts/:postId/reschedule",
+    protect,
+    requireWorkspaceMember,
+    requireRoles(
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.EDITOR
+    ),
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            const { workspaceId, postId } = req.params;
+            const { scheduledAt } = req.body;
+
+            if (!scheduledAt) {
+                return res.status(400).json({
+                    success: false,
+                    message: "ScheduledAt is required",
+                    data: {}
+                });
+            }
+
+            const scheduleDate = new Date(scheduledAt);
+
+            if (isNaN(scheduleDate.getTime())) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid scheduledAt",
+                    data: {}
+                });
+            }
+
+            if (scheduleDate.getTime() <= Date.now()) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Scheduled time must be in the future",
+                    data: {}
+                });
+            }
+
+            const post = await Post.findOne({
+                _id: postId,
+                workspaceId
+            });
+
+            if (!post) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Post not found",
+                    data: {}
+                });
+            }
+
+            if (post.status !== PostStatus.SCHEDULED) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Only scheduled posts can be rescheduled",
+                    data: {}
+                });
+            }
+
+            // Remove old BullMQ job
+            if (post.jobId) {
+                const oldJob = await postQueue.getJob(post.jobId);
+
+                if (oldJob) {
+                    await oldJob.remove();
+                    console.log(`Old job ${post.jobId} removed`);
+                }
+            }
+
+            // Create new BullMQ job
+            const newJob = await postQueue.add(
+                "publish-post",
+                {
+                    postId: post._id.toString(),
+                    workspaceId
+                },
+                {
+                    delay: scheduleDate.getTime() - Date.now(),
+                    attempts: 3,
+                    backoff: {
+                        type: "exponential",
+                        delay: 5000
+                    },
+                    removeOnComplete: true,
+                    removeOnFail: false
+                }
+            );
+
+            // Update post
+            post.scheduledAt = scheduleDate;
+            post.jobId = newJob.id;
+
+            await post.save();
+
+            return res.status(200).json({
+                success: true,
+                message: "Post rescheduled successfully",
+                data: {
+                    post
+                }
+            });
+
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to reschedule post",
+                data: {}
+            });
+        }
+    }
+);
+router.post(
+    "/:workspaceId/posts/:postId/cancel",
+    protect,
+    requireWorkspaceMember,
+    requireRoles(
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.EDITOR
+    ),
+    async (req: WorkspaceRequest, res: Response) => {
+        try {
+            const { workspaceId, postId } = req.params
+            const post = await Post.findOne({
+                _id: postId,
+                workspaceId
+            })
+
+            if (!post) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Post not found",
+                    data: {}
+                })
+            }
+            console.log("post=====>",post)
+            if (post.status !== PostStatus.SCHEDULED) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Only scheduled posts can be cancelled"
+                })
+            }
+
+            if(post.jobId){
+                const job=await postQueue.getJob(post.jobId)
+                if(job){
+                    await job.remove()
+                }
+            }
+
+            post.status = PostStatus.CANCELLED
+            post.jobId=null;
+            await post.save()
+
+            return res.status(200).json({
+                success: true,
+                message: "Post cancelled successfully",
+                data: {
+                    post
+                }
+            })
+
+        } catch (error) {
+            console.error(error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to cancel post",
+                data: {}
+            });
+        }
+    }
+)
+router.post("/change", async (req, res) => {
+    const post = await Post.findOne({
+        _id: "6a7f40bce060c4d709f77e3f",
+        workspaceId: "6a7f3f016ae66b30195de196"
     })
-    if(!post){
+    if (!post) {
         return res.status(404).json({
-            message:"not found"
+            message: "not found"
         })
     }
-    post.status=PostStatus.DRAFT;
+    post.status = PostStatus.DRAFT;
     await post.save()
     return res.status(200).json("done")
 })
