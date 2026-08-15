@@ -10,6 +10,7 @@
         PostPublishResult,
         PublishStatus
     } from "../models/PostPublishResult.js";
+import { PublisherFactory } from "../services/publishers/PublisherFactory.js";
 
     console.log("Redis host:", process.env.REDIS_HOST);
 
@@ -67,7 +68,7 @@
             const socialAccounts = await SocialAccount.find({
                 _id: { $in: socialAccountIds },
                 workspaceId
-            }).lean();
+            });
 
             if (socialAccounts.length === 0) {
                 throw new Error("No valid social accounts found");
@@ -105,9 +106,14 @@
                     
 
                     // Mock publishing
-                    await new Promise(resolve =>
-                        setTimeout(resolve, 1000)
-                    );
+                   const publisher = PublisherFactory.getPublisher(
+    account.platform
+);
+
+await publisher.publish({
+    post,
+    account
+});
 
                     // Publishing succeeded
                     publishResult.status = PublishStatus.PUBLISHED;

@@ -8,6 +8,7 @@ export enum PostStatus {
     FAILED = "FAILED"
 }
 export interface IPost extends Document {
+    _id:string
     workspaceId: string,
     createdBy: string,
     content: string,
