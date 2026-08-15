@@ -757,10 +757,27 @@ router.post(
                     postId, socialAccountId
                 })
             )
-            await PostSocialAccount.insertMany(
-                relationships,
-                { ordered: false }
-            )
+            // await PostSocialAccount.insertMany(
+            //     relationships,
+            //     { ordered: false }
+            // )
+            for (const socialAccountId of socialAccountIds) {
+    await PostSocialAccount.updateOne(
+        {
+            postId,
+            socialAccountId
+        },
+        {
+            $setOnInsert: {
+                postId,
+                socialAccountId
+            }
+        },
+        {
+            upsert: true
+        }
+    );
+}
             return res.status(201).json({
                 success: true,
                 message: "Social accounts attached successfully",
@@ -987,6 +1004,7 @@ router.post(
                     workspaceId
                 },
                 {
+                    jobId:`post-${post.id.toString()}`,
                     delay: scheduleDate.getTime() - Date.now(),
                     attempts: 3,
                     backoff: {
