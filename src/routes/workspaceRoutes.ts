@@ -10,18 +10,16 @@ import { Post, PostStatus } from "../models/Post.js";
 import { PostSocialAccount } from "../models/PostSocialAccount.js";
 import { postQueue } from "../queues/postQueue.js";
 import { PostPublishResult, PublishStatus } from "../models/PostPublishResult.js";
+import { AppError } from "../utils/AppError.js";
+import { HTTP_STATUS } from "../utils/errorCodes.js";
 
 const router = Router()
 //creating workspace
-router.post("/", protect, async (req: AuthedRequest, res: Response) => {
+router.post("/", protect, async (req: AuthedRequest, res: Response, next: NextFunction) => {
     try {
         const { name } = req.body
         if (!name || !name.trim()) {
-            return res.status(404).json({
-                success: false,
-                message: "Name is required",
-                data: {}
-            })
+            throw new AppError("Missing required fields", HTTP_STATUS.BAD_REQUEST)
         }
         const userId = req.user?.id
         //create workspace
@@ -44,17 +42,11 @@ router.post("/", protect, async (req: AuthedRequest, res: Response) => {
             }
         })
     } catch (error) {
-        console.error(error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to create workspace",
-            data: {},
-        });
+        next(error)
     }
 })
 //fetching the workspace
-router.get("/", protect, async (req: AuthedRequest, res: Response) => {
+router.get("/", protect, async (req: AuthedRequest, res: Response, next: NextFunction) => {
     try {
 
         const userId = req.user?.id
@@ -78,12 +70,7 @@ router.get("/", protect, async (req: AuthedRequest, res: Response) => {
             data
         })
     } catch (error) {
-        console.log(error)
-        return res.status(500).json({
-            message: "Failed to fetch workspaces",
-            success: false,
-            data: {}
-        })
+        next(error)
     }
 })
 //fetching workspace by id
@@ -92,11 +79,7 @@ router.get("/:workspaceId", protect, requireWorkspaceMember, async (req: Workspa
         const { workspaceId } = req.params
         const workspace = await WorkSpace.findById(workspaceId).lean()
         if (!workspace) {
-            return res.status(404).json({
-                success: false,
-                message: "Workspace not found",
-                data: {},
-            });
+            throw new AppError("Workspace not found", HTTP_STATUS.NOT_FOUND)
         }
         return res.status(200).json({
             success: true,
@@ -107,13 +90,7 @@ router.get("/:workspaceId", protect, requireWorkspaceMember, async (req: Workspa
             }
         })
     } catch (error) {
-        console.error(error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to fetch workspace",
-            data: {},
-        });
+        next(error)
     }
 })
 //hard delete everything
@@ -127,11 +104,7 @@ router.post("/:workspaceId/members", protect, requireWorkspaceMember, requireRol
         const { workspaceId } = req.params
         const { email, role } = req.body
         if (!email) {
-            return res.status(401).json({
-                success: false,
-                message: "Email is required",
-                data: {}
-            })
+            throw new AppError("Email is required", HTTP_STATUS.BAD_REQUEST)
         }
         const allowedRoles = Object.values(UserRole)
         if (
@@ -139,20 +112,12 @@ router.post("/:workspaceId/members", protect, requireWorkspaceMember, requireRol
             !Object.values(UserRole).includes(role) ||
             role === UserRole.OWNER
         ) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid role",
-                data: {},
-            });
+            throw new AppError("Invalid role", HTTP_STATUS.BAD_REQUEST)
         }
         //find user
         const user = await User.findOne({ email })
         if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: "User not found",
-                data: {}
-            })
+            throw new AppError("User not found", HTTP_STATUS.NOT_FOUND)
         }
         //check existing membership
         const existingMembership = await WorkSpaceMember.findOne({
@@ -160,11 +125,7 @@ router.post("/:workspaceId/members", protect, requireWorkspaceMember, requireRol
             userId: user._id
         })
         if (existingMembership) {
-            return res.status(409).json({
-                success: false,
-                message: 'User is already member of this workspace',
-                data: {}
-            })
+            throw new AppError("User already part of this workspace", HTTP_STATUS.CONFLICT)
         }
         const membership = await WorkSpaceMember.create({
             workspaceId,
@@ -179,13 +140,7 @@ router.post("/:workspaceId/members", protect, requireWorkspaceMember, requireRol
             },
         });
     } catch (error) {
-        console.error(error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to add member",
-            data: {},
-        });
+        next(error)
     }
 })
 //find members of a particular workspace
@@ -219,52 +174,29 @@ router.get("/:workspaceId/members", protect, requireWorkspaceMember, async (req:
             data
         });
     } catch (error) {
-        console.log(error)
-        console.error(error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to fetch workspace members",
-            data: {}
-        });
+        next(error)
     }
 })
 //changing role of a member in workspace
-router.patch("/:workspaceId/members/:userId", protect, requireRoles(UserRole.OWNER), async (req: WorkspaceRequest, res: Response) => {
+router.patch("/:workspaceId/members/:userId", protect, requireRoles(UserRole.OWNER), async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
     try {
         const { workspaceId, userId } = req.params
         const { role } = req.body
         if (!role || !Object.values(UserRole).includes(role)) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid role",
-                data: {}
-            });
+            throw new AppError("Invalid role", HTTP_STATUS.BAD_REQUEST)
         }
         if (role === UserRole.OWNER) {
-            return res.status(400).json({
-                success: false,
-                message: "Use ownership transfer to change ownership",
-                data: {}
-            });
+            throw new AppError("Use owner ship transfer to change ownership", HTTP_STATUS.BAD_REQUEST)
         }
         const member = await WorkSpaceMember.findOne({
             workspaceId,
             userId
         })
         if (!member) {
-            return res.status(404).json({
-                success: false,
-                message: 'Member not found',
-                data: {}
-            })
+            throw new AppError("Member not found", HTTP_STATUS.NOT_FOUND)
         }
         if (member.userRole === UserRole.OWNER) {
-            return res.status(400).json({
-                success: false,
-                message: "Owner role cannot be changed",
-                data: {}
-            });
+            throw new AppError("Owner cannot be changed", HTTP_STATUS.BAD_REQUEST)
         }
         member.userRole = role;
         member.save()
@@ -276,13 +208,7 @@ router.patch("/:workspaceId/members/:userId", protect, requireRoles(UserRole.OWN
             }
         });
     } catch (error) {
-        console.error(error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to update member role",
-            data: {}
-        });
+        next(error)
     }
 })
 //removing a member from a workspace
@@ -300,18 +226,10 @@ router.delete(
                 userId
             })
             if (!member) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Member not found",
-                    data: {}
-                })
+                throw new AppError("Member not found", HTTP_STATUS.NOT_FOUND)
             }
             if (member.userRole === UserRole.OWNER) {
-                return res.status(403).json({
-                    success: false,
-                    message: "Workspace owner cannot be removed",
-                    data: {}
-                });
+                throw new AppError("Workspace owner cannot be removed", HTTP_STATUS.BAD_REQUEST)
             }
             await WorkSpaceMember.deleteOne({
                 _id: member._id
@@ -322,13 +240,7 @@ router.delete(
                 data: {}
             });
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to remove member",
-                data: {}
-            });
+            next(error)
         }
     }
 )
@@ -355,18 +267,10 @@ router.post("/:workspaceId/social-accounts",
                 !accountName ||
                 !accessToken
             ) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Required fields are missing",
-                    data: {}
-                });
+                throw new AppError("Required fields are missing", HTTP_STATUS.BAD_REQUEST)
             }
             if (!Object.values(SocialPlatform).includes(platform)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Invalid social platform",
-                    data: {}
-                })
+                throw new AppError("Invalid social platform", HTTP_STATUS.BAD_REQUEST)
             }
             const existingAccount = await SocialAccount.findOne({
                 workspaceId,
@@ -374,11 +278,7 @@ router.post("/:workspaceId/social-accounts",
                 accountId
             })
             if (existingAccount) {
-                return res.status(409).json({
-                    success: false,
-                    message: "Social account already connected",
-                    data: {}
-                });
+                throw new AppError("Social account already connected", HTTP_STATUS.CONFLICT)
             }
             const socialAccount = await SocialAccount.create({
                 workspaceId,
@@ -397,13 +297,7 @@ router.post("/:workspaceId/social-accounts",
                 }
             })
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to connect social account",
-                data: {}
-            });
+            next(error)
         }
     }
 )
@@ -437,13 +331,7 @@ router.get(
             });
 
         } catch (error) {
-            console.log(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Internal server error",
-                data: {}
-            });
+            next(error)
         }
     }
 );
@@ -454,23 +342,16 @@ router.post(
     protect,
     requireWorkspaceMember,
     requireRoles(UserRole.OWNER, UserRole.ADMIN, UserRole.EDITOR),
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const { workspaceId } = req.params
             const { content, media } = req.body
             if (!content || !content.trim()) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Post content is required",
-                    data: {}
-                })
+                throw new AppError("Post content is required", HTTP_STATUS.BAD_REQUEST)
             }
             if (media !== undefined && !Array.isArray(media)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Media must be an array",
-                    data: {}
-                })
+                throw new AppError("Media must be an array", HTTP_STATUS.BAD_REQUEST)
+
             }
             const post = await Post.create({
                 workspaceId,
@@ -494,13 +375,7 @@ router.post(
                 }
             })
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to create post",
-                data: {}
-            });
+            next(error)
         }
     }
 )
@@ -509,7 +384,7 @@ router.get(
     "/:workspaceId/posts",
     protect,
     requireWorkspaceMember,
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const { workspaceId } = req.params;
             const { status } = req.query;
@@ -520,11 +395,8 @@ router.get(
 
             if (status) {
                 if (!Object.values(PostStatus).includes(status as PostStatus)) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Invalid post status",
-                        data: {}
-                    });
+                    throw new AppError("Invalid post status", HTTP_STATUS.BAD_REQUEST)
+
                 }
 
                 filter.status = status;
@@ -543,13 +415,7 @@ router.get(
             });
 
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to fetch posts",
-                data: {}
-            });
+            next(error)
         }
     }
 );
@@ -558,7 +424,7 @@ router.get(
     "/:workspaceId/posts/:postId",
     protect,
     requireWorkspaceMember,
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             console.log("hit")
             const { workspaceId, postId } = req.params
@@ -569,11 +435,8 @@ router.get(
             }).lean()
             console.log(post)
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                });
+                throw new AppError("Post not found", HTTP_STATUS.NOT_FOUND)
+
             }
             return res.status(200).json({
                 success: true,
@@ -582,13 +445,7 @@ router.get(
             });
 
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to fetch post",
-                data: {}
-            });
+            next(error)
         }
     }
 )
@@ -602,7 +459,7 @@ router.patch(
         UserRole.ADMIN,
         UserRole.EDITOR
     ),
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             console.log("hit")
             const { workspaceId, postId } = req.params;
@@ -614,29 +471,20 @@ router.patch(
             });
 
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                });
+                throw new AppError("Post not found", HTTP_STATUS.NOT_FOUND)
+
             }
 
             // Don't allow editing published posts for now
             if (post.status === PostStatus.PUBLISHED) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Published posts cannot be edited",
-                    data: {}
-                });
+                throw new AppError("Published posts cannot be edited", HTTP_STATUS.BAD_REQUEST)
+
             }
 
             if (content !== undefined) {
                 if (!content.trim()) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Content cannot be empty",
-                        data: {}
-                    });
+                    throw new AppError("Content cannot be empty", HTTP_STATUS.BAD_REQUEST)
+
                 }
 
                 post.content = content.trim();
@@ -644,11 +492,8 @@ router.patch(
 
             if (media !== undefined) {
                 if (!Array.isArray(media)) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Media must be an array",
-                        data: {}
-                    });
+                    throw new AppError("Media must be an array", HTTP_STATUS.BAD_REQUEST)
+
                 }
 
                 post.media = media;
@@ -665,13 +510,7 @@ router.patch(
             });
 
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to update post",
-                data: {}
-            });
+            next(error)
         }
     }
 );
@@ -680,7 +519,7 @@ router.delete(
     "/:workspaceId/posts/:postId",
     protect,
     requireWorkspaceMember,
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const { workspaceId, postId } = req.params
             const post = await Post.findOne({
@@ -688,18 +527,12 @@ router.delete(
                 workspaceId
             })
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                })
+                throw new AppError("Post not found", HTTP_STATUS.NOT_FOUND)
+
             }
             if (post.status === PostStatus.PUBLISHED) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Published posts cannot be deleted",
-                    data: {}
-                });
+                throw new AppError("Published posts cannot be deleted", HTTP_STATUS.BAD_REQUEST)
+
             }
 
             await Post.deleteOne({
@@ -713,13 +546,7 @@ router.delete(
             });
 
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to delete post",
-                data: {}
-            });
+            next(error)
         }
     }
 )
@@ -728,7 +555,7 @@ router.post(
     protect,
     requireWorkspaceMember,
     requireRoles(UserRole.OWNER, UserRole.ADMIN, UserRole.EDITOR),
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const { workspaceId, postId } = req.params
             const { socialAccountIds } = req.body
@@ -736,22 +563,16 @@ router.post(
                 !Array.isArray(socialAccountIds) ||
                 socialAccountIds.length === 0
             ) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Social accounts IDs must be non-empty array",
-                    data: {}
-                })
+                throw new AppError("Social accounts IDs must be non-empty array", HTTP_STATUS.BAD_REQUEST)
+
             }
             const post = await Post.findOne({
                 _id: postId,
                 workspaceId
             })
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                })
+                throw new AppError("Post not found", HTTP_STATUS.NOT_FOUND)
+
             }
             const socialAccounts = await SocialAccount.find({
                 _id: { $in: socialAccountIds },
@@ -759,11 +580,8 @@ router.post(
             }).lean()
 
             if (socialAccounts.length !== socialAccountIds.length) {
-                return res.status(400).json({
-                    success: false,
-                    message: "One or more social accounts are invalid",
-                    data: {}
-                })
+                throw new AppError("One or more social accounts are invalid", HTTP_STATUS.BAD_REQUEST)
+
             }
             const relationships = socialAccountIds.map(
                 (socialAccountId: string) => ({
@@ -775,22 +593,22 @@ router.post(
             //     { ordered: false }
             // )
             for (const socialAccountId of socialAccountIds) {
-    await PostSocialAccount.updateOne(
-        {
-            postId,
-            socialAccountId
-        },
-        {
-            $setOnInsert: {
-                postId,
-                socialAccountId
+                await PostSocialAccount.updateOne(
+                    {
+                        postId,
+                        socialAccountId
+                    },
+                    {
+                        $setOnInsert: {
+                            postId,
+                            socialAccountId
+                        }
+                    },
+                    {
+                        upsert: true
+                    }
+                );
             }
-        },
-        {
-            upsert: true
-        }
-    );
-}
             return res.status(201).json({
                 success: true,
                 message: "Social accounts attached successfully",
@@ -799,13 +617,8 @@ router.post(
                 }
             });
         } catch (error) {
-            console.error(error);
+            next(error)
 
-            return res.status(500).json({
-                success: false,
-                message: "Failed to attach social accounts",
-                data: {}
-            });
         }
     }
 )
@@ -813,7 +626,7 @@ router.get(
     "/:workspaceId/posts/:postId/social-accounts",
     protect,
     requireWorkspaceMember,
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const { workspaceId, postId } = req.params;
 
@@ -824,11 +637,8 @@ router.get(
             });
 
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                });
+                throw new AppError("Post not found", HTTP_STATUS.NOT_FOUND)
+
             }
 
             const relationships = await PostSocialAccount.find({
@@ -853,13 +663,8 @@ router.get(
             });
 
         } catch (error) {
-            console.error(error);
+            next(error)
 
-            return res.status(500).json({
-                success: false,
-                message: "Failed to fetch post social accounts",
-                data: {}
-            });
         }
     }
 );
@@ -872,7 +677,7 @@ router.delete(
         UserRole.ADMIN,
         UserRole.EDITOR
     ),
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const {
                 workspaceId,
@@ -884,21 +689,16 @@ router.delete(
                 workspaceId
             })
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                })
+                throw new AppError("Post not found ", HTTP_STATUS.NOT_FOUND)
+
             }
             const socialAccount = await SocialAccount.findOne({
                 _id: socialAccountId,
                 workspaceId
             })
             if (!socialAccount) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Social account not found"
-                })
+                throw new AppError("Social account not found", HTTP_STATUS.NOT_FOUND)
+
             }
             const result = await PostSocialAccount.deleteOne({
                 postId,
@@ -906,11 +706,8 @@ router.delete(
             })
 
             if (result.deletedCount === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Social account is not attached to this post",
-                    data: {}
-                })
+                throw new AppError("Social acocunt is not attached to this post", HTTP_STATUS.BAD_REQUEST)
+
             }
             return res.status(200).json({
                 success: true,
@@ -918,13 +715,8 @@ router.delete(
                 data: {}
             });
         } catch (error) {
-            console.error(error);
+            next(error)
 
-            return res.status(500).json({
-                success: false,
-                message: "Failed to remove social account",
-                data: {}
-            });
         }
     }
 )
@@ -938,59 +730,43 @@ router.post(
         UserRole.ADMIN,
         UserRole.EDITOR
     ),
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const { workspaceId, postId } = req.params
             const { scheduledAt } = req.body
             if (!scheduledAt) {
-                return res.status(400)
-                    .json({
-                        success: false,
-                        message: "ScheduledAt is required",
-                        data: {}
-                    })
+                throw new AppError("ScheduledAt is required", HTTP_STATUS.BAD_REQUEST)
+
             }
             const scheduleDate = new Date(scheduledAt)
             if (isNaN(scheduleDate.getTime())) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Invalid scheduledAt",
-                    data: {}
-                })
+                throw new AppError("Invalid scheduledAt", HTTP_STATUS.BAD_REQUEST)
+
             }
             if (scheduledAt < new Date()) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Scheduled time must be in future",
-                    data: {}
-                })
+                throw new AppError("Scheduled time must be in future", HTTP_STATUS.BAD_REQUEST)
+
             }
             const post = await Post.findOne({
                 _id: postId,
                 workspaceId
             })
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                })
+                throw new AppError("Post not found", HTTP_STATUS.NOT_FOUND)
+
             }
             if (post.status !== PostStatus.DRAFT) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Only draft posts can be scheduled",
-                    data: {}
-                })
+                throw new AppError("Only draft posts can be scheduled", HTTP_STATUS.BAD_REQUEST)
+
+
             }
             const socialAccounts = await PostSocialAccount.find({
                 postId
             })
             if (socialAccounts.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Attach at least one social account before scheduling"
-                })
+                throw new AppError("Attach at least one social account before scheduling", HTTP_STATUS.BAD_REQUEST)
+
+
             }
 
             await PostPublishResult.deleteMany({
@@ -1017,7 +793,7 @@ router.post(
                     workspaceId
                 },
                 {
-                    jobId:`post-${post.id.toString()}`,
+                    jobId: `post-${post.id.toString()}`,
                     delay: scheduleDate.getTime() - Date.now(),
                     attempts: 3,
                     backoff: {
@@ -1028,10 +804,10 @@ router.post(
                     removeOnFail: false
                 }
             )
-            
+
             post.jobId = job.id
             await post.save()
-            console.log("schedule====>",post)
+            console.log("schedule====>", post)
             console.log("queue addition successfull")
             return res.status(200).json({
                 success: false,
@@ -1041,13 +817,7 @@ router.post(
                 }
             })
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to schedule post",
-                data: {}
-            });
+            next(error)
         }
     }
 )
@@ -1061,35 +831,28 @@ router.patch(
         UserRole.ADMIN,
         UserRole.EDITOR
     ),
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const { workspaceId, postId } = req.params;
             const { scheduledAt } = req.body;
 
             if (!scheduledAt) {
-                return res.status(400).json({
-                    success: false,
-                    message: "ScheduledAt is required",
-                    data: {}
-                });
+                throw new AppError("ScheduledAt is required", HTTP_STATUS.BAD_REQUEST)
+
             }
 
             const scheduleDate = new Date(scheduledAt);
 
             if (isNaN(scheduleDate.getTime())) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Invalid scheduledAt",
-                    data: {}
-                });
+                throw new AppError("Invalid scheduledAt", HTTP_STATUS.BAD_REQUEST)
+
+
             }
 
             if (scheduleDate.getTime() <= Date.now()) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Scheduled time must be in the future",
-                    data: {}
-                });
+                throw new AppError("Scheduled time must be in the future", HTTP_STATUS.BAD_REQUEST)
+
+
             }
 
             const post = await Post.findOne({
@@ -1098,19 +861,14 @@ router.patch(
             });
 
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                });
+                throw new AppError("Post not found", HTTP_STATUS.NOT_FOUND)
+
             }
 
             if (post.status !== PostStatus.SCHEDULED) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Only scheduled posts can be rescheduled",
-                    data: {}
-                });
+                throw new AppError("Only scheduled posts can be rescheduled", HTTP_STATUS.BAD_REQUEST)
+
+
             }
 
             // Remove old BullMQ job
@@ -1157,13 +915,7 @@ router.patch(
             });
 
         } catch (error) {
-            console.error(error);
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to reschedule post",
-                data: {}
-            });
+            next(error)
         }
     }
 );
@@ -1177,7 +929,7 @@ router.post(
         UserRole.ADMIN,
         UserRole.EDITOR
     ),
-    async (req: WorkspaceRequest, res: Response) => {
+    async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
         try {
             const { workspaceId, postId } = req.params
             const post = await Post.findOne({
@@ -1186,29 +938,25 @@ router.post(
             })
 
             if (!post) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Post not found",
-                    data: {}
-                })
+                throw new AppError("Post not found", HTTP_STATUS.NOT_FOUND)
+
             }
-            console.log("post=====>",post)
+            console.log("post=====>", post)
             if (post.status !== PostStatus.SCHEDULED) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Only scheduled posts can be cancelled"
-                })
+                throw new AppError("Only scheduled posts can be cancelled", HTTP_STATUS.BAD_REQUEST)
+
+
             }
 
-            if(post.jobId){
-                const job=await postQueue.getJob(post.jobId)
-                if(job){
+            if (post.jobId) {
+                const job = await postQueue.getJob(post.jobId)
+                if (job) {
                     await job.remove()
                 }
             }
 
             post.status = PostStatus.CANCELLED
-            post.jobId=null;
+            post.jobId = null;
             await post.save()
 
             return res.status(200).json({
@@ -1220,13 +968,8 @@ router.post(
             })
 
         } catch (error) {
-            console.error(error);
+            next(error)
 
-            return res.status(500).json({
-                success: false,
-                message: "Failed to cancel post",
-                data: {}
-            });
         }
     }
 )

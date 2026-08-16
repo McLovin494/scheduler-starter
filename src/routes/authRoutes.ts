@@ -141,13 +141,12 @@ router.post("/refresh", async (req, res,next) => {
     }
 
     // 2. Make sure this is actually a refresh token
-    if (payload.type !== "refresh") {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid refresh token",
-        data: {},
-      });
-    }
+   if (payload.type !== "refresh") {
+    throw new AppError(
+        "Invalid refresh token",
+        HTTP_STATUS.UNAUTHORIZED
+    );
+}
 
     const userId = payload.id;
     const jti = payload.jti;
@@ -258,5 +257,7 @@ router.post("/refresh", async (req, res,next) => {
       },
     });
   } catch (error) {
-    next(error)
+    return next(error)
+           
+
   }});
